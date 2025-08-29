@@ -421,11 +421,4 @@ elif page == "Manage Flatmates":
             st.success("Flatmates updated.")
 
 # ---------------- Help ----------------
-else:
-    st.subheader("🆘 How It Works")
-    st.markdown("""
-**Quick Guide**
-- Add expenses and announcements using the sidebar.
--
-
 
