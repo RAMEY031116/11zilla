@@ -421,8 +421,5 @@ else:
 - Share the sheet with your service account email (Editor access).
 """)
 
----
-
-Let me know if you'd like this version broken into separate files or modules for even better organization.
 
 
