@@ -202,32 +202,25 @@ import streamlit as st
 import gspread
 from datetime import datetime
 
-# ----------------- App Title -----------------
 st.title("💸 Add Expense")
 
-# ----------------- Connect to Google Sheets -----------------
-# This uses your Streamlit secrets: "gcp_service_account" and "sheet_id"
+# Connect to Google Sheet
 sheet = gspread.service_account_from_dict(st.secrets["gcp_service_account"]) \
                   .open_by_key(st.secrets["sheet_id"]) \
                   .worksheet("expenses")
 
-# ----------------- Expense Form -----------------
-st.subheader("Enter your expense:")
+# Form to add an expense
+who = st.text_input("Who paid?")
+desc = st.text_input("Description")
+amount = st.number_input("Amount (£)", min_value=0.0, step=0.5, format="%.2f")  # shows 5.00, 10.00 etc.
 
-# Input fields
-who_paid = st.text_input("Who paid?")
-description = st.text_input("Description")
-amount = st.number_input("Amount (£)", min_value=0.0, step=0.5)
-
-# Button to submit
 if st.button("Add Expense"):
-    if who_paid and description and amount > 0:
-        # Get current time
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Add a new row to Google Sheets
-        sheet.append_row([timestamp, who_paid, description, amount])
-        st.success(f"✅ Added: {who_paid} paid £{amount} for {description}")
+    if who and desc and amount > 0:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([ts, who, desc, float(amount)])  # saves as a number in Google Sheets
+        st.success(f"✅ Added: {who} paid £{amount:.2f} for {desc}")
     else:
-        st.warning("Please fill in all fields and enter a valid amount.")
+        st.warning("Please fill all fields correctly.")
+
 
 
