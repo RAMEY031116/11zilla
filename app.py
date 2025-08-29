@@ -228,23 +228,25 @@ import pandas as pd
 import gspread
 from datetime import datetime
 
-# 🔧 Setup the app
+# 🏠 Set up the app layout and title
 st.set_page_config(page_title="Flatmate Manager", page_icon="🏠", layout="centered")
 st.title("🏠 Flatmate Expense & Message Board")
 
 # ---------------- Google Sheets Setup ----------------
 def connect_to_google_sheets():
+    """Connect to Google Sheets using credentials stored in Streamlit secrets."""
     try:
         creds = st.secrets["gcp_service_account"]
+        sheet_id = st.secrets["sheet_id"]
         client = gspread.service_account_from_dict(creds)
-        sheet = client.open_by_key(st.secrets["sheet_id"])
-        return sheet
+        return client.open_by_key(sheet_id)
     except KeyError:
-        st.error("Missing credentials or sheet ID in secrets.")
+        st.error("Missing Google Sheets credentials or sheet ID in secrets.")
         st.stop()
 
-def setup_sheets(sheet):
-    required_sheets = {
+def setup_worksheets(sheet):
+    """Ensure all required worksheets exist and have correct headers."""
+    required = {
         "expenses": ["timestamp", "paid_by", "description", "category", "amount", "settled"],
         "announcements": ["timestamp", "author", "message"],
         "flatmates": ["name"],
@@ -252,24 +254,25 @@ def setup_sheets(sheet):
     }
 
     existing = {ws.title for ws in sheet.worksheets()}
-    for name, headers in required_sheets.items():
+    for name, headers in required.items():
         if name not in existing:
             ws = sheet.add_worksheet(title=name, rows=1000, cols=len(headers))
             ws.update([headers])
 
-    # Add default flatmates if empty
+    # Seed default flatmates if empty
     flatmate_ws = sheet.worksheet("flatmates")
     if not flatmate_ws.get_all_records():
-        flatmate_ws.append_row(["You"])
-        flatmate_ws.append_row(["Flatmate 1"])
-        flatmate_ws.append_row(["Flatmate 2"])
+        for name in ["You", "Flatmate 1", "Flatmate 2"]:
+            flatmate_ws.append_row([name])
 
 # ---------------- Data Helpers ----------------
-def sheet_to_df(ws, headers):
-    data = ws.get_all_records()
-    return pd.DataFrame(data) if data else pd.DataFrame(columns=headers)
+def load_sheet_data(ws, headers):
+    """Load data from a worksheet into a DataFrame with guaranteed headers."""
+    records = ws.get_all_records()
+    return pd.DataFrame(records) if records else pd.DataFrame(columns=headers)
 
-def df_to_sheet(ws, df, headers):
+def save_df_to_sheet(ws, df, headers):
+    """Save a DataFrame back to a worksheet."""
     ws.clear()
     ws.update([headers])
     if not df.empty:
@@ -277,10 +280,12 @@ def df_to_sheet(ws, df, headers):
         ws.update("A2", values)
 
 def load_all_data(sheet):
-    expenses = sheet_to_df(sheet.worksheet("expenses"), ["timestamp", "paid_by", "description", "category", "amount", "settled"])
-    announcements = sheet_to_df(sheet.worksheet("announcements"), ["timestamp", "author", "message"])
-    flatmates = sheet_to_df(sheet.worksheet("flatmates"), ["name"])
+    """Load all worksheets into DataFrames."""
+    expenses = load_sheet_data(sheet.worksheet("expenses"), ["timestamp", "paid_by", "description", "category", "amount", "settled"])
+    announcements = load_sheet_data(sheet.worksheet("announcements"), ["timestamp", "author", "message"])
+    flatmates = load_sheet_data(sheet.worksheet("flatmates"), ["name"])
 
+    # Clean up expenses
     if not expenses.empty:
         expenses["amount"] = pd.to_numeric(expenses["amount"], errors="coerce").fillna(0.0)
         expenses["settled"] = expenses["settled"].astype(str).str.lower().isin(["true", "1", "yes"])
@@ -288,6 +293,7 @@ def load_all_data(sheet):
     return expenses, announcements, flatmates
 
 def calculate_balances(expenses, flatmate_names):
+    """Calculate how much each flatmate owes or is owed."""
     unsettled = expenses[~expenses["settled"]]
     total = unsettled["amount"].sum()
     per_person = total / max(len(flatmate_names), 1)
@@ -297,19 +303,25 @@ def calculate_balances(expenses, flatmate_names):
     for name in flatmate_names:
         paid_amount = paid.get(name, 0.0)
         balance = round(paid_amount - per_person, 2)
-        balances.append({"name": name, "paid": round(paid_amount, 2), "share": round(per_person, 2), "balance": balance})
+        balances.append({
+            "name": name,
+            "paid": round(paid_amount, 2),
+            "share": round(per_person, 2),
+            "balance": balance
+        })
 
     return pd.DataFrame(balances).sort_values("balance", ascending=False)
 
-# ---------------- Main App ----------------
+# ---------------- Load and Prepare ----------------
 sheet = connect_to_google_sheets()
-setup_sheets(sheet)
-
+setup_worksheets(sheet)
 expenses_df, announcements_df, flatmates_df = load_all_data(sheet)
 flatmate_names = flatmates_df["name"].tolist()
 
 # ---------------- Sidebar Navigation ----------------
-page = st.sidebar.radio("Choose a page", ["Dashboard", "Add Expense", "Edit Expenses", "Announcements", "Manage Flatmates", "Help"])
+page = st.sidebar.radio("Choose a page", [
+    "Dashboard", "Add Expense", "Edit Expenses", "Announcements", "Manage Flatmates", "Help"
+])
 
 # ---------------- Dashboard ----------------
 if page == "Dashboard":
@@ -317,17 +329,17 @@ if page == "Dashboard":
     st.dataframe(calculate_balances(expenses_df, flatmate_names), use_container_width=True)
 
     st.subheader("🧾 Recent Expenses")
-    if expenses_df.empty:
-        st.info("No expenses yet.")
-    else:
+    if not expenses_df.empty:
         st.dataframe(expenses_df.sort_values("timestamp", ascending=False).head(10), use_container_width=True)
+    else:
+        st.info("No expenses yet.")
 
     st.subheader("📢 Latest Announcements")
-    if announcements_df.empty:
-        st.info("No announcements yet.")
-    else:
+    if "timestamp" in announcements_df.columns and not announcements_df.empty:
         for _, row in announcements_df.sort_values("timestamp", ascending=False).head(5).iterrows():
             st.markdown(f"**{row['author']}** — {row['message']}  \n*{row['timestamp']}*")
+    else:
+        st.info("No announcements yet.")
 
 # ---------------- Add Expense ----------------
 elif page == "Add Expense":
@@ -357,7 +369,7 @@ elif page == "Edit Expenses":
         col1, col2, col3 = st.columns(3)
 
         if col1.button("💾 Save"):
-            df_to_sheet(sheet.worksheet("expenses"), edited, expenses_df.columns.tolist())
+            save_df_to_sheet(sheet.worksheet("expenses"), edited, expenses_df.columns.tolist())
             st.success("Changes saved.")
 
         if col2.button("🗄️ Archive Settled"):
@@ -366,12 +378,12 @@ elif page == "Edit Expenses":
             archive_ws = sheet.worksheet("archive")
             for _, row in settled.iterrows():
                 archive_ws.append_row(row.tolist())
-            df_to_sheet(sheet.worksheet("expenses"), remaining, expenses_df.columns.tolist())
+            save_df_to_sheet(sheet.worksheet("expenses"), remaining, expenses_df.columns.tolist())
             st.success(f"Archived {len(settled)} rows.")
 
         if col3.button("🧹 Mark All Settled"):
             edited["settled"] = True
-            df_to_sheet(sheet.worksheet("expenses"), edited, expenses_df.columns.tolist())
+            save_df_to_sheet(sheet.worksheet("expenses"), edited, expenses_df.columns.tolist())
             st.success("All marked as settled.")
 
 # ---------------- Announcements ----------------
@@ -390,8 +402,11 @@ elif page == "Announcements":
         st.warning("Message cannot be empty.")
 
     st.subheader("📝 Recent Announcements")
-    for _, row in announcements_df.sort_values("timestamp", ascending=False).iterrows():
-        st.markdown(f"**{row['author']}** — {row['message']}  \n*{row['timestamp']}*")
+    if "timestamp" in announcements_df.columns and not announcements_df.empty:
+        for _, row in announcements_df.sort_values("timestamp", ascending=False).iterrows():
+            st.markdown(f"**{row['author']}** — {row['message']}  \n*{row['timestamp']}*")
+    else:
+        st.info("No announcements yet.")
 
 # ---------------- Manage Flatmates ----------------
 elif page == "Manage Flatmates":
@@ -402,7 +417,7 @@ elif page == "Manage Flatmates":
         if cleaned.empty:
             st.warning("At least one name is required.")
         else:
-            df_to_sheet(sheet.worksheet("flatmates"), cleaned, ["name"])
+            save_df_to_sheet(sheet.worksheet("flatmates"), cleaned, ["name"])
             st.success("Flatmates updated.")
 
 # ---------------- Help ----------------
@@ -411,15 +426,6 @@ else:
     st.markdown("""
 **Quick Guide**
 - Add expenses and announcements using the sidebar.
-- Dashboard shows who owes what.
-- Mark expenses as settled when debts are paid.
-- Archived expenses are stored separately.
-- All data is synced via Google Sheets.
-
-**Setup Tips**
-- Add your Google Sheet ID and credentials in Streamlit Secrets.
-- Share the sheet with your service account email (Editor access).
-""")
-
+-
 
 
