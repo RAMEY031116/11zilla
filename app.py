@@ -2,7 +2,7 @@ import streamlit as st
 import gspread
 from datetime import datetime
 
-st.title("💸 Add Expense")
+st.title("11zilla expense app")
 
 # Connect to Google Sheet
 sheet = gspread.service_account_from_dict(st.secrets["gcp_service_account"]) \
@@ -22,5 +22,5 @@ if st.button("Add Expense"):
     else:
         st.warning("Please fill all fields correctly.")
 
-
+st.title("shows costs")
 
